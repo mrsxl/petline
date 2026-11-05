@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Color, Elements, EngineInterface, Register, RenderChildren, RenderElement, SessionRateLimit } from 'claude-code'
+import type { Elements, EngineInterface, Register, RenderChildren, RenderElement, SessionRateLimit } from 'claude-code'
 
 import { drawLane, FIGURE_HEIGHT, FIGURE_WIDTH, FrameBuffer, Gait } from './figures'
 import { columnsPx, fitRow, pxColumns, rowColumns } from './layout'
@@ -7,8 +7,8 @@ import type { Fit } from './layout'
 import { resetTime, untilReset } from './resets'
 import { IDLE_SPEED, Meter } from './speed'
 import { drawStatus, STATUS_HEIGHT, STATUS_WIDTH, statusAlt } from './status'
-import { DEFAULT_USAGE_LOOK, drawUsage, levelFor, USAGE_LOOK_IDS, USAGE_LOOKS } from './usage-looks'
-import type { Level, WindowReading } from './usage-looks'
+import { DEFAULT_USAGE_LOOK, drawUsage, USAGE_LOOK_IDS, USAGE_LOOKS } from './usage-looks'
+import type { WindowReading } from './usage-looks'
 import type { Speed, UsageLookId } from '../types'
 
 // Each rate-limit window the band shows, left to right, by its length in hours; it is labelled by that length,
@@ -16,15 +16,9 @@ import type { Speed, UsageLookId } from '../types'
 const WINDOW_HOURS: Readonly<Record<string, number>> = { five_hour: 5, seven_day: 7 * 24 }
 const labelOf = (hours: number) => (hours < 24 ? `${hours}h` : `${hours / 24}d`)
 
-// Cells between the parts of a group, between the usage's drawings, and between the status and the usage
-const PART_GAP = 1
+// Cells between the usage's drawings, and between the status and the usage
 const WINDOW_GAP = 2
 const GROUP_GAP = 2
-
-// The pane /usage-pane opens; the bare /usage is a built-in, which a plugin may not register
-const COMMAND = 'usage-pane'
-const PANE = 'usage'
-const PANE_TITLE = 'Usage'
 
 // How often each session picks up what `/usage-style` last chose in any session
 const CHOICE_SYNC_MS = 2_000
@@ -43,9 +37,6 @@ const speed = atom({ plugin: 'petline', key: 'speed' } as const, IDLE_SPEED)
 
 // The usage's look this session draws, as `/usage-style` last chose it in any session
 const usageLook = atom({ plugin: 'petline', key: 'usageLook' } as const, DEFAULT_USAGE_LOOK as UsageLookId)
-
-// Where the usage is text (the pane on the terminal), each level's percent takes the theme's color for it, light or dark
-const THEME_KEY: Record<Level, Color> = { ok: 'success', warn: 'warning', critical: 'error' }
 
 // A window whose reset has passed has started over, with nothing used yet
 function percentNow(limit: SessionRateLimit, now: number): number {
@@ -105,35 +96,17 @@ function resetCard({ Box, Text }: UsageElements, facts: readonly WindowFacts[]) 
   )
 }
 
-// The usage in the look `/usage-style` chose: its drawings in a row (the band) or a column (the pane), each with its card
-function usageGroup(
-  elements: UsageElements & Pick<Elements['desktop'], 'Svg'>,
-  look: UsageLookId,
-  facts: readonly WindowFacts[],
-  direction: 'row' | 'column',
-) {
+// The usage in the look `/usage-style` chose: its drawings in a row, each with its card
+function usageGroup(elements: UsageElements & Pick<Elements['desktop'], 'Svg'>, look: UsageLookId, facts: readonly WindowFacts[]) {
   const { Box, Svg } = elements
   return (
-    <Box key="usage" flexDirection={direction} alignItems={direction === 'row' ? 'center' : 'flex-start'} columnGap={WINDOW_GAP} rowGap={1}>
+    <Box key="usage" flexDirection="row" alignItems="center" columnGap={WINDOW_GAP}>
       {drawUsage(look, facts).map(drawn => (
         <Box key={drawn.kinds.join('+')} flexDirection="row" alignItems="center">
           <Svg source={drawn.svg} alt={drawn.alt} width={drawn.width} height={drawn.height} />
           {resetCard(elements, facts.filter(f => drawn.kinds.includes(f.kind)))}
         </Box>
       ))}
-    </Box>
-  )
-}
-
-// A window as text, where nothing draws an Svg (the pane on the terminal): label, percent, time left
-function windowText(elements: UsageElements, f: WindowFacts) {
-  const { Box, Text } = elements
-  return (
-    <Box key={f.kind} flexDirection="row" columnGap={PART_GAP}>
-      <Text dimColor>{f.label}</Text>
-      <Text color={THEME_KEY[levelFor(f.percent)]} bold>{`${f.percent}%`}</Text>
-      {f.until === undefined ? null : <Text dimColor>{f.until}</Text>}
-      {resetCard(elements, [f])}
     </Box>
   )
 }
@@ -309,7 +282,6 @@ export const register: Register = on => {
   let calls = 0
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: COMMAND, description: 'Show 5-hour and 7-day usage in a pane' })
     await $.command.register({ name: USAGE_CHOICE.command, description: USAGE_CHOICE.description, argumentHint: '[编号或名称]' })
     // Picks up what other sessions shared and keeps the reset countdowns current while this one sits idle
     $.clock.every(REFRESH_MS, () => $.ui.invalidate('ui.render'))
@@ -369,11 +341,6 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: COMMAND }, async $ => {
-    const opened = await $.ui.open({ id: PANE, title: PANE_TITLE })
-    return { text: opened.isPlaced ? 'Usage pane opened.' : `Usage pane opened but not shown yet: ${opened.reason}` }
-  }).catch(() => ({ text: 'Could not open the usage pane.' }))
-
   // When a window moves a whole point, appears or leaves: shares the reading with the other sessions, then redraws
   on('session.measure', async ($, e, next) => {
     if (e.changed.includes('rateLimits')) {
@@ -404,7 +371,7 @@ export const register: Register = on => {
     const sameLine = laneColumns < e.props.bodyColumns
     const right = [statusOf({ Box, Svg }, reading, reading.ground && sameLine)]
     if (windows.length > 0) {
-      right.push(usageGroup({ Box, Svg, Text }, look, windows.map(w => factsOf(w, now, fit.showReset)), 'row'))
+      right.push(usageGroup({ Box, Svg, Text }, look, windows.map(w => factsOf(w, now, fit.showReset))))
     }
 
     const row = (
@@ -423,26 +390,5 @@ export const register: Register = on => {
         {below}
       </Box>
     )
-  })
-
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const elements = $.ui.resolve(e)
-    const { Box, Text } = elements
-    const windows = await readWindows($)
-    if (windows.length === 0) {
-      return <Text dimColor>No usage yet: it arrives with the first reply on a subscription.</Text>
-    }
-
-    const now = await $.clock.now()
-    const facts = windows.map(w => factsOf(w, now, true))
-    // The terminal's table answers `Svg` with a stand-in that draws none of a drawing: there the windows are text
-    if (e.surface === 'terminal' || !('Svg' in elements)) {
-      return (
-        <Box flexDirection="column" rowGap={1}>
-          {facts.map(f => windowText({ Box, Text }, f))}
-        </Box>
-      )
-    }
-    return usageGroup({ Box, Text, Svg: elements.Svg }, await read($, usageLook), facts, 'column')
   })
 }

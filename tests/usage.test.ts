@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, Mounted } from 'claude-code/testing'
-import type { On, SessionRateLimit, SvgProps, UiOpenResult } from 'claude-code'
+import type { On, SessionRateLimit, SvgProps } from 'claude-code'
 
 import { pxColumns, rowColumns } from '../hooks/layout'
 import { resetTime, untilReset } from '../hooks/resets'
@@ -42,19 +42,6 @@ const bandProps = (bodyColumns: number) => ({
 const band = (bodyColumns = 120) =>
   ({ component: 'AbovePrompt', props: bandProps(bodyColumns) }) as const
 
-const pane = {
-  component: 'Pane',
-  requestId: 'usage',
-  props: {
-    title: 'Usage',
-    isFocused: false,
-    bodyColumns: 40,
-    placement: 'dock',
-    scroll: { offset: 0, bodyRows: 10 },
-    view: {},
-  },
-} as const
-
 // Answers $.session.usage() beneath the plugin with these windows, $.store with what other sessions shared, and
 // draws `below` beneath the band (the engine's empty band when not given)
 function usageWith(
@@ -92,7 +79,7 @@ test('each window is a drawing of its own, saying how much is used, in its level
 
 // The usage's drawings in display order (5h, then 7d), what each says, and its SVG: the band's other drawings are
 // the speed row's
-type Found = Pick<Mounted<'desktop', 'AbovePrompt' | 'Pane'>, 'findAll'>
+type Found = Pick<Mounted<'desktop', 'AbovePrompt'>, 'findAll'>
 
 async function drawings(ui: Found) {
   return (await ui.findAll({ type: 'Svg' })).map(svg => svg.props as SvgProps).filter(svg => svg.alt.includes('usage'))
@@ -128,19 +115,17 @@ async function resetCards(ui: Found) {
 test('hovering a window shows when it resets, in a card that takes no room', async ($, on) => {
   mock.clock(on, { now: NOW })
   usageWith(on, LIMITS)
-  for (const component of [band(), pane] as const) {
-    const ui = await $.ui.mount({ plugin: 'petline', surface: 'desktop', ...component })
-    const cards = await resetCards(ui)
-    expect(cards.map(card => card.text)).toEqual(LIMITS.map(limit => `${resetTime(limit.resetsAt, NOW)} 重置`))
-    for (const card of cards) {
-      expect(card.props).toMatchObject({ display: 'none', top: 0, right: 0 })
-      // The app draws the card's background: a color of the card's own could leave its text unreadable on it
-      expect(card.props.backgroundColor).toBeUndefined()
-      expect((card.children[0] as { props?: Record<string, unknown> }).props?.color).toBeUndefined()
-    }
-    expect(JSON.stringify(await ui.drawn())).toContain('"hover":{"display":"flex"}')
-    await ui.unmount()
+  const ui = await $.ui.mount({ plugin: 'petline', surface: 'desktop', ...band() })
+  const cards = await resetCards(ui)
+  expect(cards.map(card => card.text)).toEqual(LIMITS.map(limit => `${resetTime(limit.resetsAt, NOW)} 重置`))
+  for (const card of cards) {
+    expect(card.props).toMatchObject({ display: 'none', top: 0, right: 0 })
+    // The app draws the card's background: a color of the card's own could leave its text unreadable on it
+    expect(card.props.backgroundColor).toBeUndefined()
+    expect((card.children[0] as { props?: Record<string, unknown> }).props?.color).toBeUndefined()
   }
+  expect(JSON.stringify(await ui.drawn())).toContain('"hover":{"display":"flex"}')
+  await ui.unmount()
 })
 
 test('drawn as two rings, the windows share one card that says when each resets', async ($, on) => {
@@ -252,35 +237,17 @@ test('with nothing drawn below, the row is the whole band', async ($, on) => {
   await ui.unmount()
 })
 
-// As the person typing /usage-pane at the prompt
-const USAGE_PANE_RUN = {
-  command: 'usage-pane',
-  args: '',
-  origin: { kind: 'composer' },
-  presentation: { isFullscreen: false, columns: 120 },
-} as const
-
-// Stands for the surface placing the pane, or leaving it to wait; returns the ids opened
-function surfaceAnswers(on: On, result: UiOpenResult): string[] {
-  const opened: string[] = []
-  on('ui.open', ($, e) => {
-    opened.push(e.id)
-    return { value: result }
+test('the only command is /usage-style: the usage shows in the band alone', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  usageWith(on, LIMITS)
+  const registered: string[] = []
+  on('command.register', ($, e) => {
+    registered.push(e.name)
+    return { value: { command: e.name } }
   })
-  return opened
-}
-
-test('/usage-pane opens the usage pane', async ($, on) => {
-  const opened = surfaceAnswers(on, { isPlaced: true })
-  const { text } = await $.command.run(USAGE_PANE_RUN)
-  expect(opened).toEqual(['usage'])
-  expect(text).toBe('Usage pane opened.')
-})
-
-test('/usage-pane says why when the surface leaves the pane waiting', async ($, on) => {
-  surfaceAnswers(on, { isPlaced: false, reason: 'no attached surface places panes' })
-  const { text } = await $.command.run(USAGE_PANE_RUN)
-  expect(text).toBe('Usage pane opened but not shown yet: no attached surface places panes')
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/tmp', surface: 'desktop', isInteractive: true })
+  expect(registered).toEqual(['usage-style'])
 })
 
 test('shows the newest reading another session shared over this session\'s own', async ($, on) => {
@@ -309,33 +276,5 @@ test('a window past its reset reads 0% with no countdown', async ($, on) => {
   const ui = await $.ui.mount({ plugin: 'petline', surface: 'desktop', ...band() })
   expect(await alts(ui)).toEqual(['5h usage 0%'])
   expect(await resetCards(ui)).toHaveLength(0)
-  await ui.unmount()
-})
-
-test('the pane draws the windows one under the other, with the time left', async ($, on) => {
-  mock.clock(on, { now: NOW })
-  usageWith(on, LIMITS)
-  const ui = await $.ui.mount({ plugin: 'petline', surface: 'desktop', ...pane })
-  expect(await alts(ui)).toEqual(['5h usage 42%，02:14 后重置', '7d usage 91%，3天04:00 后重置'])
-  expect(await ui.find({ key: 'usage' })).toMatchObject({ props: { flexDirection: 'column' } })
-  await ui.unmount()
-})
-
-test('the pane in the terminal shows the windows without rings', async ($, on) => {
-  mock.clock(on, { now: NOW })
-  usageWith(on, LIMITS)
-  const ui = await $.ui.mount({ plugin: 'petline', surface: 'terminal', ...pane })
-  expect((await ui.find({ type: 'Text', text: '42%' }))?.props).toMatchObject({ color: 'success' })
-  expect(await ui.findAll({ type: 'Text', text: /42%/ })).toHaveLength(1)
-  expect(await ui.find({ text: '3天04:00' })).toBeDefined()
-  expect(await ui.findAll({ type: 'Svg' })).toHaveLength(0)
-  await ui.unmount()
-})
-
-test('the pane says so before there is any usage', async ($, on) => {
-  mock.clock(on, { now: NOW })
-  usageWith(on, [])
-  const ui = await $.ui.mount({ plugin: 'petline', surface: 'desktop', ...pane })
-  expect(await ui.find({ type: 'Text', text: /No usage yet/ })).toBeDefined()
   await ui.unmount()
 })

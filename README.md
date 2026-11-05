@@ -43,7 +43,6 @@ status line. The usage needs a Claude subscription and appears after the first r
 | Command | What it does |
 | --- | --- |
 | `/usage-style` | Switch the usage look in every session: alone it moves to the next, `/usage-style 2` picks one |
-| `/usage-pane` | Open the usage in a pane |
 
 ## Good to know
 

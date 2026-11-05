@@ -1,6 +1,6 @@
 {
   "name": "petline",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A pet above the prompt in Claude Code: a line cat walks the band while Claude works, faster as it writes faster, and stretches out when it is idle; beside it what Claude is doing, and your 5-hour and 7-day usage in a look you pick with /usage-style",
   "author": {
     "name": "mrsxl",
