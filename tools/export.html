@@ -1,0 +1,33 @@
+<!--
+  Renders each animation in assets/lottie/ frame by frame with lottie-web and posts every frame's
+  layers to tools/serve.py, for tools/lottie_svg.py to rebuild as SVGs that play by SMIL alone.
+  Open http://127.0.0.1:<port>/tools/export.html while `python3 tools/serve.py <port> tools/out` runs.
+-->
+<html><head><meta charset="utf-8"><script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script></head>
+<body><pre id="log"></pre><div id="box" style="width:400px;height:400px"></div>
+<script>
+const NAMES = ['cat-walking', 'relaxing-cat']
+const log = s => (document.getElementById('log').textContent += s + '\n')
+;(async () => {
+  for (const name of NAMES) {
+    const box = document.getElementById('box')
+    box.innerHTML = ''
+    const anim = lottie.loadAnimation({ container: box, renderer: 'svg', loop: false, autoplay: false, path: '../assets/lottie/' + name + '.json' })
+    await new Promise(r => anim.addEventListener('DOMLoaded', r))
+    const svg = box.querySelector('svg')
+    const main = svg.querySelector(':scope > g')
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9
+    const frames = []
+    for (let f = 0; f < anim.totalFrames; f++) {
+      anim.goToAndStop(f, true)
+      const b = main.getBBox()
+      x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.width); y1 = Math.max(y1, b.y + b.height)
+      frames.push({ defs: svg.querySelector(':scope > defs')?.innerHTML ?? '', layers: [...main.children].map(c => c.outerHTML) })
+    }
+    await fetch('/save/' + name + '.json', { method: 'POST', body: JSON.stringify({ name, fps: anim.frameRate, canvas: [anim.animationData.w, anim.animationData.h], bbox: [x0, y0, x1 - x0, y1 - y0], frames }) })
+    log(`${name}: ${frames.length} frames`)
+    anim.destroy()
+  }
+  log('done')
+})()
+</script></body></html>

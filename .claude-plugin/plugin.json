@@ -1,0 +1,21 @@
+{
+  "name": "petline",
+  "version": "1.0.0",
+  "description": "A pet above the prompt in Claude Code: a line cat walks the band while Claude works, faster as it writes faster, and stretches out when it is idle; beside it what Claude is doing, and your 5-hour and 7-day usage in a look you pick with /usage-style",
+  "author": {
+    "name": "mrsxl",
+    "url": "https://github.com/mrsxl"
+  },
+  "homepage": "https://github.com/mrsxl/petline",
+  "repository": "https://github.com/mrsxl/petline",
+  "license": "MIT",
+  "keywords": [
+    "status line",
+    "usage",
+    "rate limits",
+    "desktop",
+    "pet",
+    "cat"
+  ],
+  "types": "./types/index.d.ts"
+}
